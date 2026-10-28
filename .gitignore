@@ -1,0 +1,8 @@
+.gradle/
+build/
+.idea/
+.kotlin/
+.intellijPlatform/
+build-test.log
+build-plugin.log
+build-verify.log

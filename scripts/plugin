@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Installs or removes the plugin in the JetBrains IDEs the user picks.
+#
+#   plugin install <jetbrains-dir> <plugin-name>    offers IDEs at or above sinceBuild in build.gradle.kts
+#   plugin uninstall <jetbrains-dir> <plugin-name>  offers IDEs that have the plugin installed
+#
+# The chooser is gum, then fzf, then bash select. IDE_CHOOSER=gum|fzf|select forces one. When only one IDE
+# qualifies, it is used without a prompt. Each IDE picks up the change on its next restart.
+set -euo pipefail
+
+die() {
+    echo "$*" >&2
+    exit 1
+}
+
+(( $# == 3 )) || die "usage: $0 install|uninstall <jetbrains-dir> <plugin-name>"
+mode=$1
+root=$2
+plugin=$3
+cd "$(dirname "$0")/.."
+
+# Fills the candidates array with the IDE config dir names (e.g. GoLand2026.2) that qualify for the mode.
+find_candidates() {
+    local min dir name since
+    if [[ $mode == install ]]; then
+        since=$(sed -n 's/.*sinceBuild = "\([0-9]*\)".*/\1/p' build.gradle.kts)
+        [[ -n $since ]] || die "No sinceBuild in build.gradle.kts."
+        # Build 262 is 2026.2. Comparing year*100+minor keeps 2026.10 above 2026.9.
+        min=$(( (2000 + since / 10) * 100 + since % 10 ))
+    fi
+    candidates=()
+    for dir in "$root"/*/; do
+        name=$(basename "$dir")
+        [[ $name =~ ^[A-Za-z]+([0-9]{4})\.([0-9]+)$ ]] || continue
+        if [[ $mode == install ]]; then
+            (( BASH_REMATCH[1] * 100 + BASH_REMATCH[2] >= min )) && candidates+=("$name")
+        elif [[ -d $dir/plugins/$plugin ]]; then
+            candidates+=("$name")
+        fi
+    done
+    return 0
+}
+
+# Prints the candidates the user picks, one per line.
+choose() {
+    if (( ${#candidates[@]} == 1 )); then
+        printf '%s\n' "${candidates[0]}"
+        return
+    fi
+    local chooser=${IDE_CHOOSER:-} header="Pick IDEs to $mode" ide
+    if [[ -z $chooser ]]; then
+        if command -v gum >/dev/null; then
+            chooser=gum
+        elif command -v fzf >/dev/null; then
+            chooser=fzf
+        else
+            chooser=select
+        fi
+    fi
+    case $chooser in
+        gum)
+            gum choose --no-limit --header "$header (space to select, enter to confirm)" "${candidates[@]}"
+            ;;
+        fzf)
+            printf '%s\n' "${candidates[@]}" | fzf --multi --height '~40%' --header "$header (tab to select, enter to confirm)"
+            ;;
+        select)
+            PS3="$header: "
+            select ide in "${candidates[@]}"; do
+                [[ -n $ide ]] && { printf '%s\n' "$ide"; break; }
+            done
+            ;;
+        *)
+            die "unknown IDE_CHOOSER: $chooser"
+            ;;
+    esac
+}
+
+case $mode in
+    install)
+        zip=$(ls -t build/distributions/"$plugin"-*.zip 2>/dev/null | head -1)
+        [[ -n $zip ]] || die "No $plugin zip in build/distributions. Run just build first."
+        ;;
+    uninstall)
+        ;;
+    *)
+        die "unknown mode: $mode"
+        ;;
+esac
+
+find_candidates
+(( ${#candidates[@]} > 0 )) || { echo "No matching JetBrains IDEs in $root."; exit 0; }
+
+# A cancelled chooser exits non-zero, which just means nothing was picked.
+picked=$(choose) || picked=""
+[[ -n $picked ]] || { echo "Nothing picked."; exit 0; }
+
+while read -r ide; do
+    dir="$root/$ide/plugins"
+    rm -rf "${dir:?}/$plugin"
+    if [[ $mode == install ]]; then
+        mkdir -p "$dir"
+        unzip -q "$zip" -d "$dir"
+        echo "Installed into $ide."
+    else
+        echo "Removed from $ide."
+    fi
+done <<< "$picked"
+echo "Restart the IDE to pick up the change."

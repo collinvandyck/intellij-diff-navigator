@@ -1,0 +1,22 @@
+<idea-plugin>
+    <id>com.github.collinvandyck.diffnavigator</id>
+    <name>Diff Navigator</name>
+    <vendor>collinvandyck</vendor>
+    <description><![CDATA[
+    Lists every hunk of the current branch's PR in the Find tool window, so Next/Previous Occurrence walks them.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>Git4Idea</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup id="Diff Navigator" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <action id="PrChanges.Show"
+                class="com.github.collinvandyck.diffnavigator.ShowPrChangesAction"
+                text="Show PR Changes"
+                description="List every hunk of the current branch's PR in the Find tool window"/>
+    </actions>
+</idea-plugin>
